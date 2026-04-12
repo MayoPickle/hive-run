@@ -1,0 +1,7 @@
+.env
+reports/
+web/backend/__pycache__/
+*.py[cod]
+web/backend/monitors.db
+web/backend/monitors.db-shm
+web/backend/monitors.db-wal
