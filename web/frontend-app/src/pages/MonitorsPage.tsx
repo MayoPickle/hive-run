@@ -4,6 +4,7 @@ import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement
 import { getMonitors, createMonitor, toggleMonitor, deleteMonitor, getMonitor, getMonitorHistory } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { fmtUptime, uptimeColor } from '../lib/utils';
+import { useAuth } from '../lib/auth';
 import type { MonitorStatus, ProbeResult } from '../lib/types';
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Filler, Tooltip);
@@ -12,6 +13,7 @@ type View = 'list' | 'detail';
 
 export default function MonitorsPage() {
   const toast = useToast();
+  const { canOperate } = useAuth();
   const [list, setList] = useState<MonitorStatus[]>([]);
   const [view, setView] = useState<View>('list');
   const [showForm, setShowForm] = useState(false);
@@ -31,6 +33,10 @@ export default function MonitorsPage() {
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canOperate) {
+      toast('Your role is read-only', 'error');
+      return;
+    }
     try {
       await createMonitor({ name: mName, url: mUrl, interval_seconds: mInterval, timeout_ms: mTimeout });
       toast('Monitor created');
@@ -40,12 +46,14 @@ export default function MonitorsPage() {
   };
 
   const handleToggle = async (m: MonitorStatus) => {
+    if (!canOperate) return;
     await toggleMonitor(m.monitor_id, !m.enabled);
     toast(m.enabled ? 'Monitor paused' : 'Monitor resumed');
     load();
   };
 
   const handleDelete = async (id: string) => {
+    if (!canOperate) return;
     if (!confirm('Delete this monitor and all its probe data?')) return;
     await deleteMonitor(id);
     toast('Monitor deleted');
@@ -71,13 +79,20 @@ export default function MonitorsPage() {
           <h2 className="text-xl font-semibold tracking-tight">Uptime Monitors</h2>
           <p className="text-sm text-muted-foreground mt-1">Track availability and response time across your endpoints.</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors gap-1.5">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-          Add Monitor
-        </button>
+        {canOperate && (
+          <button onClick={() => setShowForm(!showForm)} className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            Add Monitor
+          </button>
+        )}
       </div>
+      {!canOperate && (
+        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          Your account is read-only. Viewers can inspect monitor health but cannot create, pause, or delete monitors.
+        </div>
+      )}
 
-      {showForm && (
+      {showForm && canOperate && (
         <form onSubmit={handleCreate} className="mb-6 animate-in rounded-lg border border-border bg-card p-6 space-y-5">
           <h3 className="text-sm font-medium">Add Monitor</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -160,16 +175,20 @@ export default function MonitorsPage() {
                       className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-accent transition-colors">
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                     </button>
-                    <button onClick={() => handleToggle(m)} title={m.enabled ? 'Pause' : 'Resume'}
-                      className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-accent transition-colors">
-                      {m.enabled
-                        ? <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                        : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>}
-                    </button>
-                    <button onClick={() => handleDelete(m.monitor_id)} title="Delete"
-                      className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-colors">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                    </button>
+                    {canOperate && (
+                      <>
+                        <button onClick={() => handleToggle(m)} title={m.enabled ? 'Pause' : 'Resume'}
+                          className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-accent transition-colors">
+                          {m.enabled
+                            ? <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                            : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>}
+                        </button>
+                        <button onClick={() => handleDelete(m.monitor_id)} title="Delete"
+                          className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-colors">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

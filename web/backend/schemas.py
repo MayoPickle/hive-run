@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+
+UserRole = Literal["viewer", "operator", "admin"]
 
 
 class TestConfig(BaseModel):
@@ -126,3 +129,48 @@ class ScheduleStatus(BaseModel):
     next_run_at: Optional[datetime] = None
     last_job_id: str = ""
     last_status: str = ""
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=256)
+
+
+class CurrentUser(BaseModel):
+    id: str
+    username: str
+    display_name: str
+    role: UserRole
+    can_use_proxy: bool
+    is_active: bool
+    last_login_at: Optional[str] = None
+
+
+class UserSummary(CurrentUser):
+    created_at: str
+    updated_at: str
+
+
+class CreateUserRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=64)
+    display_name: str = Field(min_length=1, max_length=128)
+    password: str = Field(min_length=8, max_length=256)
+    role: UserRole = "viewer"
+    can_use_proxy: bool = False
+    is_active: bool = True
+
+
+class UpdateUserRequest(BaseModel):
+    display_name: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    role: Optional[UserRole] = None
+    can_use_proxy: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str = Field(min_length=8, max_length=256)

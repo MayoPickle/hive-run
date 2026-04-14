@@ -3,6 +3,7 @@ import { runTest, getJobStatus } from '../lib/api';
 import { useToast } from '../components/Toast';
 import ResultView from '../components/ResultView';
 import type { TestConfig, JobStatus } from '../lib/types';
+import { useAuth } from '../lib/auth';
 
 const PRESETS: Record<string, Partial<TestConfig>> = {
   smoke:  { duration: '10s', concurrency: 5, qps: 10, ramp_up: '2s' },
@@ -15,6 +16,7 @@ type Phase = 'form' | 'running' | 'results';
 
 export default function TestPage() {
   const toast = useToast();
+  const { canOperate, canUseProxy } = useAuth();
   const [phase, setPhase] = useState<Phase>('form');
   const [elapsed, setElapsed] = useState(0);
   const [job, setJob] = useState<JobStatus | null>(null);
@@ -40,6 +42,11 @@ export default function TestPage() {
   const [retryBackoff, setRetryBackoff] = useState('200');
 
   useEffect(() => () => { clearInterval(pollRef.current); clearInterval(tickRef.current); }, []);
+  useEffect(() => {
+    if (!canUseProxy) {
+      setProxy(false);
+    }
+  }, [canUseProxy]);
 
   const applyPreset = (name: string) => {
     const p = PRESETS[name];
@@ -59,15 +66,20 @@ export default function TestPage() {
     });
     return {
       target_url: url, method, duration, concurrency, ramp_up: rampUp, timeout,
-      qps, headers: hdrs, body, use_proxy: proxy,
+      qps, headers: hdrs, body, use_proxy: canUseProxy ? proxy : false,
       stop_on_error_rate: errorRate, stop_on_timeout_rate: timeoutRate,
       min_samples_before_stop: minSamples, retry_count: retryCount, retry_backoff: retryBackoff,
     };
   };
 
   const startTest = async () => {
+    if (!canOperate) {
+      toast('Your role is read-only', 'error');
+      return;
+    }
     try {
       const { job_id } = await runTest(collectConfig());
+      localStorage.setItem('activeJobId', job_id);
       setPhase('running');
       setElapsed(0);
       tickRef.current = setInterval(() => setElapsed(s => s + 1), 1000);
@@ -76,11 +88,13 @@ export default function TestPage() {
           const j = await getJobStatus(job_id);
           if (j.status === 'completed') {
             stopPolling();
+            localStorage.removeItem('activeJobId');
             setJob(j);
             setPhase('results');
             toast('Load test completed');
           } else if (j.status === 'failed') {
             stopPolling();
+            localStorage.removeItem('activeJobId');
             toast(j.error || 'Test failed', 'error');
             setPhase('form');
           }
@@ -96,7 +110,11 @@ export default function TestPage() {
     clearInterval(tickRef.current);
   };
 
-  const cancel = () => { stopPolling(); setPhase('form'); };
+  const cancel = () => {
+    stopPolling();
+    localStorage.removeItem('activeJobId');
+    setPhase('form');
+  };
 
   const inputCls = 'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground ring-ring focus-visible:outline-none focus-visible:ring-1 font-mono';
 
@@ -109,8 +127,14 @@ export default function TestPage() {
             <h2 className="text-xl font-semibold tracking-tight">New Load Test</h2>
             <p className="text-sm text-muted-foreground mt-1">Configure and launch a load test against your target endpoint.</p>
           </div>
+          {!canOperate && (
+            <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+              Your account is read-only. Viewers can inspect results but cannot launch new load tests.
+            </div>
+          )}
           <form onSubmit={e => { e.preventDefault(); startTest(); }} className="space-y-6">
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <fieldset disabled={!canOperate} className={!canOperate ? 'space-y-6 opacity-70' : 'space-y-6'}>
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left column */}
               <div className="lg:col-span-8 space-y-6">
                 {/* Target */}
@@ -157,12 +181,15 @@ export default function TestPage() {
                     <div className="flex items-end">
                       <label className="inline-flex items-center gap-2.5 h-9 cursor-pointer select-none">
                         <div className="relative">
-                          <input type="checkbox" checked={proxy} onChange={e => setProxy(e.target.checked)} className="sr-only peer" />
+                          <input type="checkbox" checked={proxy} onChange={e => setProxy(e.target.checked)} className="sr-only peer" disabled={!canUseProxy} />
                           <div className="w-9 h-5 rounded-full bg-secondary peer-checked:bg-emerald-500 transition-colors" />
                           <div className="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-foreground transition-transform peer-checked:translate-x-4" />
                         </div>
                         <span className="text-xs font-medium text-muted-foreground">Bright Data Proxy</span>
                       </label>
+                      {!canUseProxy && (
+                        <span className="ml-3 text-[11px] text-muted-foreground">Requires proxy permission</span>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -205,9 +232,9 @@ export default function TestPage() {
                 </div>
 
                 {/* Run button */}
-                <button type="submit" className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors h-10 w-full bg-primary text-primary-foreground shadow hover:bg-primary/90 gap-2">
+                <button type="submit" disabled={!canOperate} className="inline-flex items-center justify-center whitespace-nowrap rounded-md text-sm font-medium transition-colors h-10 w-full bg-primary text-primary-foreground shadow hover:bg-primary/90 gap-2 disabled:cursor-not-allowed disabled:opacity-60">
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth="2.5" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>
-                  Run Load Test
+                  {canOperate ? 'Run Load Test' : 'Read-only'}
                 </button>
 
                 {/* Presets */}
@@ -223,7 +250,8 @@ export default function TestPage() {
                   </div>
                 </div>
               </div>
-            </div>
+              </div>
+            </fieldset>
           </form>
         </section>
       )}
@@ -257,7 +285,7 @@ export default function TestPage() {
         <section className="animate-in space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold tracking-tight">Results</h2>
-            <button onClick={() => setPhase('form')} className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 border border-input bg-transparent hover:bg-accent hover:text-accent-foreground transition-colors gap-1.5">
+            <button onClick={() => { localStorage.removeItem('activeJobId'); setPhase('form'); }} className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 border border-input bg-transparent hover:bg-accent hover:text-accent-foreground transition-colors gap-1.5">
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
               New Test
             </button>

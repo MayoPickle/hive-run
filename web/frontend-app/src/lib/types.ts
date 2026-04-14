@@ -1,5 +1,7 @@
 /* API types — mirrors web/backend/schemas.py */
 
+export type UserRole = 'viewer' | 'operator' | 'admin';
+
 export interface TestConfig {
   target_url: string;
   method?: string;
@@ -117,4 +119,49 @@ export interface MonitorStatus {
   uptime_24h: number | null;
   uptime_7d: number | null;
   uptime_30d: number | null;
+}
+
+export interface LoginRequest {
+  username: string;
+  password: string;
+}
+
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+}
+
+export interface CurrentUser {
+  id: string;
+  username: string;
+  display_name: string;
+  role: UserRole;
+  can_use_proxy: boolean;
+  is_active: boolean;
+  last_login_at: string | null;
+}
+
+export interface UserSummary extends CurrentUser {
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateUserRequest {
+  username: string;
+  display_name: string;
+  password: string;
+  role: UserRole;
+  can_use_proxy: boolean;
+  is_active: boolean;
+}
+
+export interface UpdateUserRequest {
+  display_name?: string;
+  role?: UserRole;
+  can_use_proxy?: boolean;
+  is_active?: boolean;
+}
+
+export interface ResetPasswordRequest {
+  new_password: string;
 }

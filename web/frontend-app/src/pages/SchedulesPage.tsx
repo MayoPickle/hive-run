@@ -2,10 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { getSchedules, createSchedule, toggleSchedule, deleteSchedule } from '../lib/api';
 import { useToast } from '../components/Toast';
 import { formatInterval } from '../lib/utils';
+import { useAuth } from '../lib/auth';
 import type { ScheduleStatus } from '../lib/types';
 
 export default function SchedulesPage() {
   const toast = useToast();
+  const { canOperate, canUseProxy } = useAuth();
   const [list, setList] = useState<ScheduleStatus[]>([]);
   const [showForm, setShowForm] = useState(false);
 
@@ -24,14 +26,23 @@ export default function SchedulesPage() {
   }, [toast]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!canUseProxy) {
+      setSProxy(false);
+    }
+  }, [canUseProxy]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canOperate) {
+      toast('Your role is read-only', 'error');
+      return;
+    }
     try {
       await createSchedule({
         name,
         interval_seconds: interval,
-        test_config: { target_url: sUrl, method: sMethod, duration: sDuration, concurrency: sConcurrency, qps: sQps, use_proxy: sProxy },
+        test_config: { target_url: sUrl, method: sMethod, duration: sDuration, concurrency: sConcurrency, qps: sQps, use_proxy: canUseProxy ? sProxy : false },
       });
       toast('Schedule created');
       setShowForm(false);
@@ -40,12 +51,14 @@ export default function SchedulesPage() {
   };
 
   const handleToggle = async (s: ScheduleStatus) => {
+    if (!canOperate) return;
     await toggleSchedule(s.schedule_id, !s.enabled);
     toast(s.enabled ? 'Schedule paused' : 'Schedule resumed');
     load();
   };
 
   const handleDelete = async (id: string) => {
+    if (!canOperate) return;
     if (!confirm('Delete this schedule?')) return;
     await deleteSchedule(id);
     toast('Schedule deleted');
@@ -61,14 +74,21 @@ export default function SchedulesPage() {
           <h2 className="text-xl font-semibold tracking-tight">Scheduled Tests</h2>
           <p className="text-sm text-muted-foreground mt-1">Recurring load tests that run automatically on a fixed interval.</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors gap-1.5">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
-          New Schedule
-        </button>
+        {canOperate && (
+          <button onClick={() => setShowForm(!showForm)} className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors gap-1.5">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            New Schedule
+          </button>
+        )}
       </div>
+      {!canOperate && (
+        <div className="mb-6 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          Your account is read-only. Viewers can inspect schedules but cannot create, pause, or delete them.
+        </div>
+      )}
 
       {/* Create form */}
-      {showForm && (
+      {showForm && canOperate && (
         <form onSubmit={handleCreate} className="mb-6 animate-in rounded-lg border border-border bg-card p-6 space-y-5">
           <h3 className="text-sm font-medium">Create Schedule</h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -111,12 +131,13 @@ export default function SchedulesPage() {
           </div>
           <label className="inline-flex items-center gap-2.5 cursor-pointer select-none">
             <div className="relative">
-              <input type="checkbox" checked={sProxy} onChange={e => setSProxy(e.target.checked)} className="sr-only peer" />
+              <input type="checkbox" checked={sProxy} onChange={e => setSProxy(e.target.checked)} className="sr-only peer" disabled={!canUseProxy} />
               <div className="w-9 h-5 rounded-full bg-secondary peer-checked:bg-emerald-500 transition-colors" />
               <div className="absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-foreground transition-transform peer-checked:translate-x-4" />
             </div>
             <span className="text-xs font-medium text-muted-foreground">Bright Data Proxy</span>
           </label>
+          {!canUseProxy && <p className="text-[11px] text-muted-foreground">Proxy scheduling requires proxy permission.</p>}
           <div className="flex gap-2 justify-end">
             <button type="button" onClick={() => setShowForm(false)} className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 border border-input bg-transparent hover:bg-accent transition-colors">Cancel</button>
             <button type="submit" className="inline-flex items-center justify-center rounded-md text-sm font-medium h-9 px-4 bg-primary text-primary-foreground shadow hover:bg-primary/90 transition-colors">Create</button>
@@ -151,18 +172,20 @@ export default function SchedulesPage() {
                       {s.last_status && <StatusBadge status={s.last_status} />}
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5 ml-4 shrink-0">
-                    <button onClick={() => handleToggle(s)} title={s.enabled ? 'Pause' : 'Resume'}
-                      className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-accent transition-colors">
-                      {s.enabled
-                        ? <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
-                        : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>}
-                    </button>
-                    <button onClick={() => handleDelete(s.schedule_id)} title="Delete"
-                      className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-colors">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-                    </button>
-                  </div>
+                  {canOperate && (
+                    <div className="flex items-center gap-1.5 ml-4 shrink-0">
+                      <button onClick={() => handleToggle(s)} title={s.enabled ? 'Pause' : 'Resume'}
+                        className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-accent transition-colors">
+                        {s.enabled
+                          ? <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+                          : <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path d="M5 3l14 9-14 9V3z"/></svg>}
+                      </button>
+                      <button onClick={() => handleDelete(s.schedule_id)} title="Delete"
+                        className="inline-flex items-center justify-center rounded-md h-8 w-8 border border-input hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-colors">
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             );
