@@ -13,9 +13,9 @@ from dotenv import load_dotenv
 from schemas import JobStatus, TestConfig, TestResult
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-REPORTS_DIR = PROJECT_ROOT / "reports"
-
 load_dotenv(PROJECT_ROOT / ".env")
+
+REPORTS_DIR = Path(os.getenv("REPORT_DIR", str(PROJECT_ROOT / "reports"))).expanduser()
 _DEFAULT_PROXY_URL = os.getenv("PROXY_URL", "")
 
 _jobs: dict[str, JobStatus] = {}
@@ -76,6 +76,8 @@ async def start_job(cfg: TestConfig) -> str:
 async def _run_job(job_id: str, cfg: TestConfig) -> None:
     job = _jobs[job_id]
     args = _build_args(cfg)
+    env = os.environ.copy()
+    env["REPORT_DIR"] = str(REPORTS_DIR)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -83,6 +85,7 @@ async def _run_job(job_id: str, cfg: TestConfig) -> None:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(PROJECT_ROOT),
+            env=env,
         )
 
         stdout_bytes, stderr_bytes = await proc.communicate()
